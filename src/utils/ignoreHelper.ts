@@ -34,6 +34,11 @@ export class IgnoreHelper {
     return !ignInstance?.ignores(filePath)
   }
 
+  @log
+  public keepDestructive(path: string): boolean {
+    return !this.destructiveIgnore.ignores(path)
+  }
+
   // Stryker disable next-line BlockStatement -- equivalent: test-only reset hook; emptying the body leaves the singleton populated across tests but each test that uses this hook follows it with a fresh buildIgnore call that the next test asserts on, so the residual state is always overwritten before assertion
   static resetIgnoreInstance() {
     IgnoreHelper.ignoreInstance = null

@@ -1,6 +1,6 @@
 'use strict'
+import ignore from 'ignore'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-
 import { MetadataRepository } from '../../../../src/metadata/MetadataRepository'
 import { getDefinition } from '../../../../src/metadata/metadataManager'
 import InFileHandler from '../../../../src/service/inFileHandler'
@@ -10,6 +10,7 @@ import {
   CopyOperationKind,
   ManifestTarget,
 } from '../../../../src/types/handlerResult'
+import { IgnoreHelper } from '../../../../src/utils/ignoreHelper'
 import { elementsOf } from '../../../__utils__/handlerResultView'
 import { createElement } from '../../../__utils__/testElement'
 import { getConfig, getContext } from '../../../__utils__/testWork'
@@ -956,4 +957,75 @@ describe('inFileHandler collect', () => {
       ])
     )
   })
+})
+
+describe('in-file destructive filtering', () => {
+  it.each([true, false])(
+    'filters only deletions when the destructive path matches=%s',
+    async matches => {
+      const path = 'force-app/main/default/workflows/Account.workflow-meta.xml'
+      const helper = new IgnoreHelper(
+        ignore(),
+        ignore().add(matches ? path : 'unrelated/**')
+      )
+      const build = vi
+        .spyOn(IgnoreHelper, 'buildIgnore')
+        .mockResolvedValue(helper)
+      const { changeType, element } = createElement(
+        `M\t${path}`,
+        workflowType,
+        globalMetadata
+      )
+      mockRun.mockResolvedValue({
+        manifests: {
+          added: [{ type: 'WorkflowAlert', member: 'Added' }],
+          modified: [{ type: 'WorkflowAlert', member: 'Modified' }],
+          deleted: [{ type: 'WorkflowAlert', member: 'Deleted' }],
+        },
+        hasPackageContent: true,
+        writer: mockWriter,
+      })
+      try {
+        const result = await new InFileHandler(
+          changeType,
+          element,
+          getContext({ config })
+        ).collectModification()
+        expect(
+          elementsOf(result).filter(
+            entry => entry.target === ManifestTarget.DestructiveChanges
+          )
+        ).toEqual(
+          matches
+            ? []
+            : [expect.objectContaining({ member: 'Account.Deleted' })]
+        )
+        expect(elementsOf(result)).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              member: 'Account.Added',
+              changeKind: ChangeKind.Add,
+            }),
+            expect.objectContaining({
+              member: 'Account.Modified',
+              changeKind: ChangeKind.Modify,
+            }),
+            expect.objectContaining({
+              member: 'Account',
+              target: ManifestTarget.Package,
+            }),
+          ])
+        )
+        expect(result.copies).toEqual([
+          expect.objectContaining({
+            kind: CopyOperationKind.StreamedContent,
+            path,
+          }),
+        ])
+      } finally {
+        build.mockRestore()
+        IgnoreHelper.resetIgnoreInstance()
+      }
+    }
+  )
 })

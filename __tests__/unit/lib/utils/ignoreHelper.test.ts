@@ -1,4 +1,5 @@
 'use strict'
+import ignore from 'ignore'
 import {
   afterAll,
   afterEach,
@@ -619,5 +620,73 @@ describe('ignoreHelper', () => {
         expect(keep).toBe(false)
       })
     })
+  })
+})
+
+describe('keepDestructive', () => {
+  it.each([
+    ['force-app/main/default/labels/CustomLabels.labels-meta.xml', false],
+    ['force-app/main/default/labels/Other.labels-meta.xml', true],
+    ['nested/force-app/main/default/labels/CustomLabels.labels-meta.xml', true],
+  ])('matches repository-relative path %s', (path, expected) => {
+    const helper = new IgnoreHelper(
+      ignore().add('**'),
+      ignore().add(
+        '/force-app/main/default/labels/CustomLabels.labels-meta.xml'
+      )
+    )
+    expect(helper.keepDestructive(path)).toBe(expected)
+    expect(helper.keep(`M\t${path}`)).toBe(false)
+  })
+
+  it('honours gitignore negation', () => {
+    const helper = new IgnoreHelper(
+      ignore(),
+      ignore().add(['**/labels/*', '!**/labels/Keep.labels-meta.xml'])
+    )
+    expect(
+      helper.keepDestructive(
+        'force-app/main/default/labels/Keep.labels-meta.xml'
+      )
+    ).toBe(true)
+    expect(
+      helper.keepDestructive(
+        'force-app/main/default/labels/Delete.labels-meta.xml'
+      )
+    ).toBe(false)
+  })
+
+  it('falls back to the global rules when destructive ignore is absent', async () => {
+    IgnoreHelper.resetIgnoreInstance()
+    mockedReadFile.mockResolvedValue('**/labels/*')
+    const helper = await buildIgnoreHelper({ ignore: '.ignore' })
+    expect(
+      helper.keepDestructive(
+        'force-app/main/default/labels/CustomLabels.labels-meta.xml'
+      )
+    ).toBe(false)
+    IgnoreHelper.resetIgnoreInstance()
+  })
+
+  it('uses explicit destructive rules independently of global rules', async () => {
+    IgnoreHelper.resetIgnoreInstance()
+    mockedReadFile
+      .mockResolvedValueOnce('**/labels/*')
+      .mockResolvedValueOnce('**/workflows/*')
+    const helper = await buildIgnoreHelper({
+      ignore: '.ignore',
+      ignoreDestructive: '.destructiveignore',
+    })
+    expect(
+      helper.keepDestructive(
+        'force-app/main/default/labels/CustomLabels.labels-meta.xml'
+      )
+    ).toBe(true)
+    expect(
+      helper.keepDestructive(
+        'force-app/main/default/workflows/Account.workflow-meta.xml'
+      )
+    ).toBe(false)
+    IgnoreHelper.resetIgnoreInstance()
   })
 })
